@@ -1,0 +1,5 @@
+{
+  "name": "Note",
+  "description": "Một ứng dụng ghi chú đơn giản, hiện đại giống Apple Notes, tích hợp AI để hỗ trợ viết và tóm tắt nội dung.",
+  "requestFramePermissions": []
+}
