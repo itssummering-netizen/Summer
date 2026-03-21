@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { Editor } from './components/Editor';
 import { Dashboard } from './components/Dashboard';
 import { Note, Folder } from './types';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Helper to generate unique ID
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -60,6 +61,9 @@ const App: React.FC = () => {
   
   // Mobile responsiveness
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // Desktop sidebar toggle
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Persistence
   useEffect(() => {
@@ -261,8 +265,8 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
-      {/* Sidebar - Conditional rendering for mobile */}
-      <div className={`${isSidebarOpen ? 'w-full md:w-80' : 'hidden md:block w-80'} h-full flex-shrink-0 transition-all`}>
+      {/* Sidebar - Conditional rendering for mobile and desktop */}
+      <div className={`${isSidebarOpen ? 'w-full md:w-80' : 'hidden md:block w-80'} ${isSidebarCollapsed ? 'md:hidden' : ''} h-full flex-shrink-0 transition-all duration-300 border-r border-gray-100 relative group`}>
         <Sidebar
           notes={currentView === 'trash' ? trashNotes : activeNotes}
           activeNoteId={activeNoteId}
@@ -273,10 +277,32 @@ const App: React.FC = () => {
           onGoHome={handleGoHome}
           currentView={currentView}
         />
+        
+        {/* Desktop Sidebar Collapse Button (Inside Sidebar) */}
+        <button
+          onClick={() => setIsSidebarCollapsed(true)}
+          className="hidden md:flex absolute -right-3 top-1/2 -translate-y-1/2 z-50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          title="Thu gọn ghi chú"
+        >
+          <ChevronLeft size={80} strokeWidth={1} />
+        </button>
       </div>
 
       {/* Main Area: Shows Editor if note selected, otherwise Dashboard */}
-      <div className={`flex-1 h-full ${!isSidebarOpen ? 'block' : 'hidden md:block'}`}>
+      <div className={`flex-1 h-full relative ${!isSidebarOpen ? 'block' : 'hidden md:block'}`}>
+        {/* Desktop Sidebar Expand Button (Only visible when collapsed) */}
+        {isSidebarCollapsed && (
+          <div className="hidden md:flex absolute left-0 top-0 bottom-0 w-12 z-50 group items-center">
+            <button
+              onClick={() => setIsSidebarCollapsed(false)}
+              className="absolute -left-3 text-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Mở rộng ghi chú"
+            >
+              <ChevronRight size={80} strokeWidth={1} />
+            </button>
+          </div>
+        )}
+
         {activeNote ? (
           <Editor 
             note={activeNote} 

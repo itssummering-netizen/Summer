@@ -20,3 +20,24 @@ export enum AIAction {
   FIX_GRAMMAR = 'fix_grammar',
   CONTINUE_WRITING = 'continue_writing'
 }
+
+export interface DailyTask {
+  id: string;
+  text: string;
+  completed: boolean;
+  column: 'red' | 'yellow' | 'green';
+  createdAt: number;
+}
+
+export interface DontDoTask {
+  id: string;
+  text: string;
+  createdAt: number;
+}
+
+export interface ExpectedSchedule {
+  id: string;
+  text: string;
+  date: string; // YYYY-MM-DD
+  createdAt: number;
+}

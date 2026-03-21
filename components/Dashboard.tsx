@@ -1,11 +1,12 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Note, Folder as FolderType } from '../types';
+import { Note, Folder as FolderType, DailyTask, DontDoTask, ExpectedSchedule } from '../types';
 import { 
   Folder, Clock, FileText, ChevronRight, Briefcase, User, 
   Heart, Star, Book, Coffee, Music, Layout, X,
   ArrowLeft, Trash2, PenLine, MoreHorizontal, Plus, RotateCcw,
-  FolderInput, Check, FilePlus, FolderPlus
+  FolderInput, Check, FilePlus, FolderPlus, Circle, CheckCircle2, Sunrise
 } from 'lucide-react';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 
 interface DashboardProps {
   notes: Note[];
@@ -119,6 +120,180 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [folderName, setFolderName] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('folder');
   const [selectedColor, setSelectedColor] = useState('bg-blue-500');
+
+  // Reminder State
+  const [dailyTasks, setDailyTasks] = useState<DailyTask[]>(() => {
+    const saved = localStorage.getItem('vn-notes-daily-tasks');
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: '1', text: 'Ăn đúng bữa: sáng-trưa-tối, bữa phụ', completed: false, column: 'red', createdAt: Date.now() },
+      { id: '2', text: 'Đi chợ nấu ăn', completed: false, column: 'red', createdAt: Date.now() },
+      { id: '3', text: 'Sắp xếp mọi việc trước 22h30 và đi ngủ', completed: false, column: 'red', createdAt: Date.now() },
+      { id: '4', text: 'Nghiên cứu 3D, UX/UI, AI', completed: false, column: 'red', createdAt: Date.now() },
+      { id: '5', text: 'Uống đủ nước', completed: false, column: 'yellow', createdAt: Date.now() },
+      { id: '6', text: 'Quan sát market', completed: false, column: 'yellow', createdAt: Date.now() },
+      { id: '7', text: 'Tập thể dục', completed: false, column: 'yellow', createdAt: Date.now() },
+      { id: '8', text: 'Dọn dẹp, vệ sinh nhà cửa', completed: false, column: 'yellow', createdAt: Date.now() },
+      { id: '9', text: 'Tắm rửa', completed: false, column: 'green', createdAt: Date.now() },
+      { id: '10', text: 'Chăm sóc da', completed: false, column: 'green', createdAt: Date.now() },
+      { id: '11', text: 'Đọc sách', completed: false, column: 'green', createdAt: Date.now() },
+    ];
+  });
+
+  const [dontDoTasks, setDontDoTasks] = useState<DontDoTask[]>(() => {
+    const saved = localStorage.getItem('vn-notes-dont-do');
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: '1', text: 'Check ig, facebook', createdAt: Date.now() },
+      { id: '2', text: 'Lướt reel, tiktok', createdAt: Date.now() },
+    ];
+  });
+
+  const [expectedSchedules, setExpectedSchedules] = useState<ExpectedSchedule[]>(() => {
+    const saved = localStorage.getItem('vn-notes-schedules');
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: '1', text: 'Đi coffee', date: '24/03/2026', createdAt: Date.now() },
+      { id: '2', text: 'Đi coffee', date: '24/03/2026', createdAt: Date.now() },
+      { id: '3', text: 'Đi chợ nấu ăn', date: '24/03/2026', createdAt: Date.now() },
+    ];
+  });
+
+  // State for Expected Schedule Modal
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [newScheduleDate, setNewScheduleDate] = useState('');
+  const [newScheduleText, setNewScheduleText] = useState('');
+
+  // Persist Reminder State
+  useEffect(() => {
+    localStorage.setItem('vn-notes-daily-tasks', JSON.stringify(dailyTasks));
+  }, [dailyTasks]);
+
+  useEffect(() => {
+    localStorage.setItem('vn-notes-dont-do', JSON.stringify(dontDoTasks));
+  }, [dontDoTasks]);
+
+  useEffect(() => {
+    localStorage.setItem('vn-notes-schedules', JSON.stringify(expectedSchedules));
+  }, [expectedSchedules]);
+
+  // Reset Daily Tasks at midnight VN time
+  useEffect(() => {
+    const checkReset = () => {
+      const vnTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+      const currentDateStr = `${vnTime.getFullYear()}-${vnTime.getMonth() + 1}-${vnTime.getDate()}`;
+      
+      const lastReset = localStorage.getItem('vn-notes-last-reset');
+      if (lastReset !== currentDateStr) {
+        setDailyTasks(prev => prev.map(t => ({ ...t, completed: false })));
+        localStorage.setItem('vn-notes-last-reset', currentDateStr);
+      }
+    };
+    checkReset();
+    const interval = setInterval(checkReset, 60000); // Check every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  // --- REMINDER HANDLERS ---
+  const generateId = () => Math.random().toString(36).substr(2, 9);
+
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    const { source, destination } = result;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    const sourceTasks = dailyTasks.filter(t => t.column === source.droppableId && !t.completed);
+    const draggedTask = sourceTasks[source.index];
+    if (!draggedTask) return;
+
+    const newTasks = dailyTasks.filter(t => t.id !== draggedTask.id);
+    const destTasks = newTasks.filter(t => t.column === destination.droppableId && !t.completed);
+
+    let insertIndex = newTasks.length;
+    if (destination.index < destTasks.length) {
+      const targetTask = destTasks[destination.index];
+      insertIndex = newTasks.findIndex(t => t.id === targetTask.id);
+    } else {
+      const firstCompleted = newTasks.find(t => t.column === destination.droppableId && t.completed);
+      if (firstCompleted) {
+        insertIndex = newTasks.findIndex(t => t.id === firstCompleted.id);
+      } else if (destTasks.length > 0) {
+        insertIndex = newTasks.findIndex(t => t.id === destTasks[destTasks.length - 1].id) + 1;
+      }
+    }
+
+    newTasks.splice(insertIndex, 0, { ...draggedTask, column: destination.droppableId as any });
+    setDailyTasks(newTasks);
+  };
+
+  const handleDailyTaskChange = (id: string, text: string) => {
+    setDailyTasks(prev => prev.map(t => t.id === id ? { ...t, text } : t));
+  };
+
+  const toggleDailyTask = (id: string) => {
+    setDailyTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  };
+
+  const handleDailyTaskKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, id: string, column: 'red' | 'yellow' | 'green') => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const newTask: DailyTask = { id: generateId(), text: '', completed: false, column, createdAt: Date.now() };
+      const index = dailyTasks.findIndex(t => t.id === id);
+      const newTasks = [...dailyTasks];
+      newTasks.splice(index + 1, 0, newTask);
+      setDailyTasks(newTasks);
+    } else if (e.key === 'Backspace' && e.currentTarget.value === '') {
+      e.preventDefault();
+      setDailyTasks(prev => prev.filter(t => t.id !== id));
+    }
+  };
+
+  const handleDontDoChange = (id: string, text: string) => {
+    setDontDoTasks(prev => prev.map(t => t.id === id ? { ...t, text } : t));
+  };
+
+  const handleDontDoKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, id: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const newTask: DontDoTask = { id: generateId(), text: '', createdAt: Date.now() };
+      const index = dontDoTasks.findIndex(t => t.id === id);
+      const newTasks = [...dontDoTasks];
+      newTasks.splice(index + 1, 0, newTask);
+      setDontDoTasks(newTasks);
+    } else if (e.key === 'Backspace' && e.currentTarget.value === '') {
+      e.preventDefault();
+      setDontDoTasks(prev => prev.filter(t => t.id !== id));
+    }
+  };
+
+  const removeDontDoTask = (id: string) => {
+    setDontDoTasks(prev => prev.filter(t => t.id !== id));
+  };
+
+  const addDontDoTask = () => {
+    setDontDoTasks(prev => [...prev, { id: generateId(), text: '', createdAt: Date.now() }]);
+  };
+
+  const addExpectedSchedule = () => {
+    if (!newScheduleDate || !newScheduleText.trim()) return;
+    // Format date from YYYY-MM-DD to DD/MM/YYYY
+    const [year, month, day] = newScheduleDate.split('-');
+    const formattedDate = `${day}/${month}/${year}`;
+    
+    setExpectedSchedules(prev => [...prev, { 
+      id: generateId(), 
+      text: newScheduleText, 
+      date: formattedDate, 
+      createdAt: Date.now() 
+    }]);
+    setIsScheduleModalOpen(false);
+    setNewScheduleDate('');
+    setNewScheduleText('');
+  };
+
+  const removeExpectedSchedule = (id: string) => {
+    setExpectedSchedules(prev => prev.filter(t => t.id !== id));
+  };
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -286,6 +461,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
   };
 
+  const sortedExpectedSchedules = useMemo(() => {
+    return [...expectedSchedules].sort((a, b) => {
+      const [dayA, monthA, yearA] = a.date.split('/');
+      const [dayB, monthB, yearB] = b.date.split('/');
+      const dateA = new Date(Number(yearA), Number(monthA) - 1, Number(dayA));
+      const dateB = new Date(Number(yearB), Number(monthB) - 1, Number(dayB));
+      return dateA.getTime() - dateB.getTime();
+    });
+  }, [expectedSchedules]);
+
   return (
     <div className="relative h-full">
         <div className="h-full overflow-y-auto bg-gray-50/50 p-6 md:p-10">
@@ -305,16 +490,257 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <h1 className="text-4xl font-bold text-gray-900 tracking-tight">{viewingFolder}</h1>
                     </div>
                 ) : (
-                    <div className="flex flex-col gap-8">
+                    <div className="flex flex-col gap-6">
                         <div>
                             <h1 className="text-4xl font-bold text-gray-900 tracking-tight">
                                 {isTrashView ? 'Thùng rác' : 'Tổng quan'}
                             </h1>
                         </div>
 
+                        {/* REMINDER SECTION - Only show in main Dashboard */}
+                        {!isTrashView && (
+                            <div className="flex flex-col gap-4">
+                                {/* Reminder Pill */}
+                                <div className="bg-gray-100 px-6 py-2 rounded-full w-fit">
+                                    <span className="text-xl font-bold text-gray-900">Reminder</span>
+                                </div>
+
+                                {/* Daily Tasks Card */}
+                                <div className="bg-white rounded-[2rem] p-6 pb-8 mb-4">
+                                    <DragDropContext onDragEnd={onDragEnd}>
+                                        <div className="grid grid-cols-1 md:grid-cols-[4fr_3.5fr_2.5fr] gap-6">
+                                            {/* Red Column */}
+                                            <div className="flex flex-col gap-4">
+                                                <div className="h-14 bg-[#f8f8f8] rounded-2xl w-full relative overflow-hidden">
+                                                    <div className="absolute left-0 top-0 h-full aspect-square bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-[#feeaea] to-[#f1f1f1] rounded-2xl"></div>
+                                                </div>
+                                                <Droppable droppableId="red">
+                                                    {(provided) => (
+                                                        <div 
+                                                            ref={provided.innerRef}
+                                                            {...provided.droppableProps}
+                                                            className="flex flex-col gap-2"
+                                                        >
+                                                            {dailyTasks.filter(t => t.column === 'red' && !t.completed).map((task, index) => (
+                                                                <Draggable key={task.id} draggableId={task.id} index={index}>
+                                                                    {(provided, snapshot) => (
+                                                                        <div 
+                                                                            ref={provided.innerRef}
+                                                                            {...provided.draggableProps}
+                                                                            {...provided.dragHandleProps}
+                                                                            className={`flex items-center gap-4 py-3 pl-4 border-b-2 border-gray-50 bg-white ${snapshot.isDragging ? 'z-50 cursor-grabbing' : ''}`}
+                                                                        >
+                                                                            <button onClick={() => toggleDailyTask(task.id)} className="text-gray-300 hover:text-gray-400">
+                                                                                <Circle size={22} fill="currentColor" className="text-[#d9d9d9]" />
+                                                                            </button>
+                                                                            <input 
+                                                                                type="text" 
+                                                                                value={task.text} 
+                                                                                onChange={(e) => handleDailyTaskChange(task.id, e.target.value)}
+                                                                                onKeyDown={(e) => handleDailyTaskKeyDown(e, task.id, 'red')}
+                                                                                className="flex-1 bg-transparent outline-none text-gray-800 text-[15px] font-semibold placeholder-gray-300"
+                                                                                placeholder="Thêm việc..."
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </Draggable>
+                                                            ))}
+                                                            {provided.placeholder}
+                                                            {dailyTasks.filter(t => t.column === 'red' && t.completed).map(task => (
+                                                                <div key={task.id} className="flex items-center gap-4 py-3 pl-4 border-b-2 border-gray-50">
+                                                                    <button onClick={() => toggleDailyTask(task.id)} className="text-gray-400">
+                                                                        <CheckCircle2 size={22} fill="currentColor" className="text-[#d9d9d9]" />
+                                                                    </button>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={task.text} 
+                                                                        onChange={(e) => handleDailyTaskChange(task.id, e.target.value)}
+                                                                        onKeyDown={(e) => handleDailyTaskKeyDown(e, task.id, 'red')}
+                                                                        className="flex-1 bg-transparent outline-none text-gray-800/20 text-[15px] font-semibold"
+                                                                    />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </Droppable>
+                                            </div>
+
+                                            {/* Yellow Column */}
+                                            <div className="flex flex-col gap-4">
+                                                <div className="h-14 bg-[#f8f8f8] rounded-2xl w-full relative overflow-hidden">
+                                                    <div className="absolute left-0 top-0 h-full aspect-square bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-[#fef9ea] to-[#f1f1f1] rounded-2xl"></div>
+                                                </div>
+                                                <Droppable droppableId="yellow">
+                                                    {(provided) => (
+                                                        <div 
+                                                            ref={provided.innerRef}
+                                                            {...provided.droppableProps}
+                                                            className="flex flex-col gap-2"
+                                                        >
+                                                            {dailyTasks.filter(t => t.column === 'yellow' && !t.completed).map((task, index) => (
+                                                                <Draggable key={task.id} draggableId={task.id} index={index}>
+                                                                    {(provided, snapshot) => (
+                                                                        <div 
+                                                                            ref={provided.innerRef}
+                                                                            {...provided.draggableProps}
+                                                                            {...provided.dragHandleProps}
+                                                                            className={`flex items-center gap-4 py-3 pl-4 border-b-2 border-gray-50 bg-white ${snapshot.isDragging ? 'z-50 cursor-grabbing' : ''}`}
+                                                                        >
+                                                                            <button onClick={() => toggleDailyTask(task.id)} className="text-gray-300 hover:text-gray-400">
+                                                                                <Circle size={22} fill="currentColor" className="text-[#d9d9d9]" />
+                                                                            </button>
+                                                                            <input 
+                                                                                type="text" 
+                                                                                value={task.text} 
+                                                                                onChange={(e) => handleDailyTaskChange(task.id, e.target.value)}
+                                                                                onKeyDown={(e) => handleDailyTaskKeyDown(e, task.id, 'yellow')}
+                                                                                className="flex-1 bg-transparent outline-none text-gray-800 text-[15px] font-semibold placeholder-gray-300"
+                                                                                placeholder="Thêm việc..."
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </Draggable>
+                                                            ))}
+                                                            {provided.placeholder}
+                                                            {dailyTasks.filter(t => t.column === 'yellow' && t.completed).map(task => (
+                                                                <div key={task.id} className="flex items-center gap-4 py-3 pl-4 border-b-2 border-gray-50">
+                                                                    <button onClick={() => toggleDailyTask(task.id)} className="text-gray-400">
+                                                                        <CheckCircle2 size={22} fill="currentColor" className="text-[#d9d9d9]" />
+                                                                    </button>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={task.text} 
+                                                                        onChange={(e) => handleDailyTaskChange(task.id, e.target.value)}
+                                                                        onKeyDown={(e) => handleDailyTaskKeyDown(e, task.id, 'yellow')}
+                                                                        className="flex-1 bg-transparent outline-none text-gray-800/20 text-[15px] font-semibold"
+                                                                    />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </Droppable>
+                                            </div>
+
+                                            {/* Green Column */}
+                                            <div className="flex flex-col gap-4">
+                                                <div className="h-14 bg-[#f8f8f8] rounded-2xl w-full relative overflow-hidden">
+                                                    <div className="absolute left-0 top-0 h-full aspect-square bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-[#eafefe] to-[#f1f1f1] rounded-2xl"></div>
+                                                </div>
+                                                <Droppable droppableId="green">
+                                                    {(provided) => (
+                                                        <div 
+                                                            ref={provided.innerRef}
+                                                            {...provided.droppableProps}
+                                                            className="flex flex-col gap-2"
+                                                        >
+                                                            {dailyTasks.filter(t => t.column === 'green' && !t.completed).map((task, index) => (
+                                                                <Draggable key={task.id} draggableId={task.id} index={index}>
+                                                                    {(provided, snapshot) => (
+                                                                        <div 
+                                                                            ref={provided.innerRef}
+                                                                            {...provided.draggableProps}
+                                                                            {...provided.dragHandleProps}
+                                                                            className={`flex items-center gap-4 py-3 pl-4 border-b-2 border-gray-50 bg-white ${snapshot.isDragging ? 'z-50 cursor-grabbing' : ''}`}
+                                                                        >
+                                                                            <button onClick={() => toggleDailyTask(task.id)} className="text-gray-300 hover:text-gray-400">
+                                                                                <Circle size={22} fill="currentColor" className="text-[#d9d9d9]" />
+                                                                            </button>
+                                                                            <input 
+                                                                                type="text" 
+                                                                                value={task.text} 
+                                                                                onChange={(e) => handleDailyTaskChange(task.id, e.target.value)}
+                                                                                onKeyDown={(e) => handleDailyTaskKeyDown(e, task.id, 'green')}
+                                                                                className="flex-1 bg-transparent outline-none text-gray-800 text-[15px] font-semibold placeholder-gray-300"
+                                                                                placeholder="Thêm việc..."
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </Draggable>
+                                                            ))}
+                                                            {provided.placeholder}
+                                                            {dailyTasks.filter(t => t.column === 'green' && t.completed).map(task => (
+                                                                <div key={task.id} className="flex items-center gap-4 py-3 pl-4 border-b-2 border-gray-50">
+                                                                    <button onClick={() => toggleDailyTask(task.id)} className="text-gray-400">
+                                                                        <CheckCircle2 size={22} fill="currentColor" className="text-[#d9d9d9]" />
+                                                                    </button>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={task.text} 
+                                                                        onChange={(e) => handleDailyTaskChange(task.id, e.target.value)}
+                                                                        onKeyDown={(e) => handleDailyTaskKeyDown(e, task.id, 'green')}
+                                                                        className="flex-1 bg-transparent outline-none text-gray-800/20 text-[15px] font-semibold"
+                                                                    />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </Droppable>
+                                            </div>
+                                        </div>
+                                    </DragDropContext>
+                                </div>
+
+                                {/* "Không làm" and "Lịch dự kiến" Rows */}
+                                <div className="flex flex-col gap-4">
+                                    {/* Không làm */}
+                                    <div className="flex flex-col md:flex-row gap-4 items-start md:items-stretch">
+                                        <div className="bg-gray-200/60 p-4 rounded-2xl w-32 flex justify-center items-center shrink-0">
+                                            <Sunrise size={28} className="text-gray-800" />
+                                        </div>
+                                        <div className="flex flex-wrap gap-3 flex-1">
+                                            {dontDoTasks.map(task => (
+                                                <div key={task.id} className="bg-white px-5 py-2 rounded-full flex items-center gap-3 w-fit group relative pr-10">
+                                                    <Circle size={22} strokeWidth={3} className="text-[#d9d9d9] shrink-0" />
+                                                    <input 
+                                                        type="text" 
+                                                        value={task.text} 
+                                                        onChange={(e) => handleDontDoChange(task.id, e.target.value)}
+                                                        onKeyDown={(e) => handleDontDoKeyDown(e, task.id)}
+                                                        className="bg-transparent outline-none text-gray-800 text-[15px] font-semibold placeholder-gray-300"
+                                                        style={{ width: `${Math.max(task.text.length + 2, 15)}ch` }}
+                                                        placeholder="Thêm việc không làm..."
+                                                    />
+                                                    <button onClick={() => removeDontDoTask(task.id)} className="absolute right-3 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity">
+                                                        <X size={16} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            <button onClick={addDontDoTask} className="bg-white px-10 py-2 rounded-full flex justify-center items-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+                                                <Plus size={20} />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Lịch dự kiến */}
+                                    <div className="flex flex-col md:flex-row gap-4 items-start md:items-stretch">
+                                        <div className="bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-100 to-[#f1f1f1] p-4 rounded-2xl w-32 flex justify-center items-center shrink-0">
+                                            <Sunrise size={28} className="text-gray-800" />
+                                        </div>
+                                        <div className="flex flex-wrap gap-3 flex-1">
+                                            {sortedExpectedSchedules.map(task => (
+                                                <div key={task.id} className="bg-white px-5 py-2 rounded-full flex items-center gap-3 w-fit group">
+                                                    <button 
+                                                        onClick={() => removeExpectedSchedule(task.id)} 
+                                                        className="text-[#d9d9d9] hover:text-gray-100 transition-colors shrink-0 flex items-center justify-center"
+                                                    >
+                                                        <Circle size={22} fill="currentColor" />
+                                                    </button>
+                                                    <span className="text-gray-500 text-[13px] font-light italic shrink-0 font-['Arial']">{task.date}</span>
+                                                    <span className="text-gray-800 text-[15px] font-semibold">{task.text}</span>
+                                                </div>
+                                            ))}
+                                            <button onClick={() => setIsScheduleModalOpen(true)} className="bg-white px-10 py-2 rounded-full flex justify-center items-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+                                                <Plus size={20} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                          {/* Toggle Bar - Only for main Dashboard */}
                          {!isTrashView && (
-                            <div className="flex items-center bg-gray-100 p-1.5 rounded-full w-fit">
+                            <div className="flex items-center bg-gray-100 p-1.5 rounded-full w-fit mt-8">
                                 <button
                                     onClick={() => setActiveTab('folders')}
                                     className={`px-6 py-2 rounded-full text-lg md:text-xl font-bold transition-all duration-300 ${
@@ -737,6 +1163,63 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL for Expected Schedule */}
+      {isScheduleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-md p-8 animate-in fade-in zoom-in duration-200 shadow-2xl">
+            <div className="flex justify-between items-center mb-8">
+              <h3 className="text-2xl font-bold text-gray-900">
+                Thêm lịch dự kiến
+              </h3>
+              <button onClick={() => setIsScheduleModalOpen(false)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wider">Ngày</label>
+                <input 
+                  type="date" 
+                  value={newScheduleDate}
+                  onChange={(e) => setNewScheduleDate(e.target.value)}
+                  className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-lg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wider">Việc cần làm</label>
+                <input 
+                  type="text" 
+                  value={newScheduleText}
+                  onChange={(e) => setNewScheduleText(e.target.value)}
+                  placeholder="Ví dụ: Đi coffee, Đi chợ..."
+                  className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-lg"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-10">
+              <div className="flex-1"></div>
+              <button 
+                onClick={() => setIsScheduleModalOpen(false)}
+                className="px-6 py-4 rounded-xl text-gray-600 hover:bg-gray-100 font-bold transition-colors"
+              >
+                Hủy
+              </button>
+              <button 
+                onClick={addExpectedSchedule}
+                disabled={!newScheduleDate || !newScheduleText.trim()}
+                className="px-8 py-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Thêm lịch
+              </button>
+            </div>
           </div>
         </div>
       )}
