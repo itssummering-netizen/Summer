@@ -83,6 +83,14 @@ const COLOR_OPTIONS = [
     { id: 'gray', class: 'bg-gray-500' },
 ];
 
+const DontDoIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
+  <img src="/asset_dont.png" alt="Không làm" width={size} height={size} className={`object-contain ${className}`} referrerPolicy="no-referrer" />
+);
+
+const ExpectedScheduleIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
+  <img src="/asset_date.png" alt="Lịch dự kiến" width={size} height={size} className={`object-contain ${className}`} referrerPolicy="no-referrer" />
+);
+
 export const Dashboard: React.FC<DashboardProps> = ({ 
   notes, 
   folders,
@@ -102,7 +110,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [viewingFolder, setViewingFolder] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'folders' | 'notes'>('folders');
+  const [activeTab, setActiveTab] = useState<'folders' | 'reminder'>('reminder');
   
   // State for the "More" dropdown menu (folders)
   const [openMenuFolderId, setOpenMenuFolderId] = useState<string | null>(null);
@@ -473,7 +481,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="relative h-full">
-        <div className="h-full overflow-y-auto bg-gray-50/50 p-6 md:p-10">
+        <div className="h-full overflow-y-scroll bg-gray-50/50 p-6 md:p-10">
             {/* Reduced max-w and spacing */}
             <div className="max-w-7xl mx-auto space-y-8 pb-24">
                 
@@ -497,14 +505,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             </h1>
                         </div>
 
-                        {/* REMINDER SECTION - Only show in main Dashboard */}
+                        {/* Toggle Bar - Only for main Dashboard */}
                         {!isTrashView && (
-                            <div className="flex flex-col gap-4">
-                                {/* Reminder Pill */}
-                                <div className="bg-gray-100 px-6 py-2 rounded-full w-fit">
-                                    <span className="text-xl font-bold text-gray-900">Reminder</span>
-                                </div>
+                            <div className="flex items-center bg-gray-100 py-1.5 px-4 rounded-full w-fit mt-2">
+                                <button
+                                    onClick={() => setActiveTab('reminder')}
+                                    className={`px-4 py-2 rounded-full text-lg md:text-xl font-bold transition-all duration-300 ${
+                                        activeTab === 'reminder' 
+                                        ? 'text-gray-900 opacity-100' 
+                                        : 'text-gray-900 opacity-20 hover:opacity-40'
+                                    }`}
+                                >
+                                    Reminder
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('folders')}
+                                    className={`px-4 py-2 rounded-full text-lg md:text-xl font-bold transition-all duration-300 ${
+                                        activeTab === 'folders' 
+                                        ? 'text-gray-900 opacity-100' 
+                                        : 'text-gray-900 opacity-20 hover:opacity-40'
+                                    }`}
+                                >
+                                    Note
+                                </button>
+                            </div>
+                        )}
 
+                        {/* REMINDER SECTION - Only show in main Dashboard when activeTab is reminder */}
+                        {!isTrashView && activeTab === 'reminder' && (
+                            <div className="flex flex-col gap-1 -mt-1">
+                                {/* Daily Tasks Header */}
+                                <div className="flex items-center justify-between pl-4">
+                                    <h2 className="text-2xl font-bold text-gray-900 opacity-20">Daily task</h2>
+                                </div>
                                 {/* Daily Tasks Card */}
                                 <div className="bg-white rounded-[2rem] p-6 pb-8 mb-4">
                                     <DragDropContext onDragEnd={onDragEnd}>
@@ -685,7 +718,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                     {/* Không làm */}
                                     <div className="flex flex-col md:flex-row gap-4 items-start md:items-stretch">
                                         <div className="bg-gray-200/60 p-4 rounded-2xl w-32 flex justify-center items-center shrink-0">
-                                            <Sunrise size={28} className="text-gray-800" />
+                                            <DontDoIcon size={25} className="text-gray-800" />
                                         </div>
                                         <div className="flex flex-wrap gap-3 flex-1">
                                             {dontDoTasks.map(task => (
@@ -714,7 +747,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                     {/* Lịch dự kiến */}
                                     <div className="flex flex-col md:flex-row gap-4 items-start md:items-stretch">
                                         <div className="bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-100 to-[#f1f1f1] p-4 rounded-2xl w-32 flex justify-center items-center shrink-0">
-                                            <Sunrise size={28} className="text-gray-800" />
+                                            <ExpectedScheduleIcon size={25} className="text-gray-800" />
                                         </div>
                                         <div className="flex flex-wrap gap-3 flex-1">
                                             {sortedExpectedSchedules.map(task => (
@@ -737,45 +770,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 </div>
                             </div>
                         )}
-
-                         {/* Toggle Bar - Only for main Dashboard */}
-                         {!isTrashView && (
-                            <div className="flex items-center bg-gray-100 p-1.5 rounded-full w-fit mt-8">
-                                <button
-                                    onClick={() => setActiveTab('folders')}
-                                    className={`px-6 py-2 rounded-full text-lg md:text-xl font-bold transition-all duration-300 ${
-                                        activeTab === 'folders' 
-                                        ? 'text-gray-900 opacity-100' 
-                                        : 'text-gray-900 opacity-20 hover:opacity-40'
-                                    }`}
-                                >
-                                    Thư mục
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('notes')}
-                                    className={`px-6 py-2 rounded-full text-lg md:text-xl font-bold transition-all duration-300 ${
-                                        activeTab === 'notes' 
-                                        ? 'text-gray-900 opacity-100' 
-                                        : 'text-gray-900 opacity-20 hover:opacity-40'
-                                    }`}
-                                >
-                                    Ghi chú
-                                </button>
-                            </div>
-                        )}
                     </div>
                 )}
                 </div>
 
                 {/* Folders Section - Show if (Not Viewing Folder AND (ActiveTab is Folders OR Trash View)) */}
                 {(!viewingFolder && (activeTab === 'folders' || isTrashView)) && (
-                    <section>
-                    {/* Header - Hidden in Trash View */}
-                    {!isTrashView && (
-                        <div className="flex items-center justify-between mb-5">
-                            {/* Hidden as per user request to use toggle instead of headers */}
-                        </div>
-                    )}
+                    <section className="-mt-3">
                     
                     {/* Responsive Grid Layout - Added responsive GAP */}
                     <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3 sm:gap-4 md:gap-6">
@@ -909,13 +910,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </section>
                 )}
 
-                {/* Notes Grid Section - Show if (Viewing Folder OR (ActiveTab is Notes OR Trash View)) */}
-                {(viewingFolder || activeTab === 'notes' || isTrashView) && (
-                <section>
+                {/* Notes Grid Section - Show if (Viewing Folder OR (ActiveTab is Folders OR Trash View)) */}
+                {(viewingFolder || activeTab === 'folders' || isTrashView) && (
+                <section className={!viewingFolder && !isTrashView ? "mt-16" : ""}>
                 {/* Header - Hidden in Trash View OR when viewing a specific folder (since main title covers it) */}
                 {!isTrashView && !viewingFolder && (
-                     <div className="flex items-center justify-between mb-4 mt-2">
-                         {/* Hidden as per user request */}
+                     <div className="flex items-center justify-between mb-8 mt-12">
+                         <h2 className="text-2xl font-bold text-gray-900">Tất cả ghi chú</h2>
                      </div>
                 )}
                 

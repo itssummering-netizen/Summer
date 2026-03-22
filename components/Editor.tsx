@@ -85,13 +85,12 @@ export const Editor: React.FC<EditorProps> = ({ note, folders, onUpdateNote, onB
       }
     }
     
-    onUpdateNote(note.id, { content: newText, updatedAt: Date.now() });
+    // Update local textarea value immediately so selection works synchronously
+    textarea.value = newText;
+    textarea.focus();
+    textarea.setSelectionRange(newCursorPos, newCursorPos);
     
-    // Restore focus and set cursor
-    setTimeout(() => {
-        textarea.focus();
-        textarea.setSelectionRange(newCursorPos, newCursorPos);
-    }, 0);
+    onUpdateNote(note.id, { content: newText, updatedAt: Date.now() });
   };
 
   const handleAIAction = async (action: AIAction) => {
@@ -209,6 +208,7 @@ export const Editor: React.FC<EditorProps> = ({ note, folders, onUpdateNote, onB
           {/* Unified Toolbar Pill - Increased size */}
           <div className="pointer-events-auto flex items-center gap-6 bg-[#F8F8F8] px-8 py-3 rounded-full border border-gray-200/60 mx-auto backdrop-blur-xl">
               <button 
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertFormat('**', '**')} 
                   className="text-gray-500 hover:text-gray-900 transition-colors focus:outline-none p-1.5" 
                   title="In đậm"
@@ -216,6 +216,7 @@ export const Editor: React.FC<EditorProps> = ({ note, folders, onUpdateNote, onB
                   <Bold strokeWidth={2.5} size={20} />
               </button>
               <button 
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertFormat('*', '*')} 
                   className="text-gray-500 hover:text-gray-900 transition-colors focus:outline-none p-1.5" 
                   title="In nghiêng"
@@ -223,6 +224,7 @@ export const Editor: React.FC<EditorProps> = ({ note, folders, onUpdateNote, onB
                   <Italic strokeWidth={2.5} size={20} />
               </button>
               <button 
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertFormat('__', '__')} 
                   className="text-gray-500 hover:text-gray-900 transition-colors focus:outline-none p-1.5" 
                   title="Gạch chân"
@@ -233,6 +235,7 @@ export const Editor: React.FC<EditorProps> = ({ note, folders, onUpdateNote, onB
               <div className="w-px h-5 bg-gray-300/60 mx-1"></div>
               
               <button 
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertFormat('- ', '', true)} 
                   className="text-gray-500 hover:text-gray-900 transition-colors focus:outline-none p-1.5" 
                   title="Danh sách"
@@ -240,6 +243,7 @@ export const Editor: React.FC<EditorProps> = ({ note, folders, onUpdateNote, onB
                   <List strokeWidth={2.5} size={20} />
               </button>
               <button 
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertFormat('- [ ] ', '', true)} 
                   className="text-gray-500 hover:text-gray-900 transition-colors focus:outline-none p-1.5" 
                   title="Checklist"
