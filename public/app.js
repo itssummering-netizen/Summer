@@ -58,23 +58,14 @@
         return encodeURIComponent([f.driveFileId || '', f.driveThumbnailId || '', f.size || 0, f.uploadedAt || '', f.name || ''].join('|'));
     }
     function thumbUrl(f) {
+        if (f.localThumbUrl) return f.localThumbUrl;
         return `/api/files/${f.id}/thumbnail?v=${fileMediaRevision(f)}`;
     }
     function rawUrl(f) {
         return `/api/files/${f.id}/raw?v=${fileMediaRevision(f)}`;
     }
 
-    /** Giữ vị trí kéo trên canvas, cập nhật field từ server (driveId, size, content…) */
-    function applyServerFiles(serverList) {
-        const tempFiles = files.filter(f => f.isTemp);
-        const posMap = new Map(files.map((x) => [x.id, x.position]));
-        files = serverList.map((sf) => ({
-            ...sf,
-            position: posMap.get(sf.id) || sf.position
-        }));
-        // Ghép thêm các file đang trong quá trình tạo để không bị mất khi sync
-        if (tempFiles.length > 0) files = [...files, ...tempFiles];
-    }
+
 
     let driveMetaRefreshTimers = [];
     function clearDriveMetaRefreshTimers() {
@@ -142,20 +133,22 @@
                     if (Array.isArray(data)) {
                         applyServerFiles(data);
                         saveToCache();
-                        // Render đầu tiên
-                        render();
                         
-                        // Bắt đầu chuỗi hiệu ứng "Chào mừng" ngay lập tức
-                        dismissLoginAfterCanvasPaint();
-                        
-                        // Gliding camera: Khởi động ngay lập tức dựa trên tọa độ điểm neo
+                        // 1. Tính toán vị trí tâm ngay lập tức (Chưa render) với scale = 0.5 (zoom out)
                         scale = 0.5;
                         document.documentElement.style.setProperty('--card-scale', scale);
-                        focusContent({ smooth: false, padding: 150 });
+                        focusContent({ smooth: false });
                         
-                        // Zoom in mượt mà tới hệ điểm neo
+                        // 2. Sau khi camera đã ở đúng vị trí, mới vẽ file
+                        render();
+                        
+                        // 3. Đóng popup và thực hiện hiệu ứng lướt mượt mà về scale mặc định (1.0)
+                        dismissLoginAfterCanvasPaint();
+                        
                         setTimeout(() => {
-                            focusContent({ smooth: true, fit: true, padding: 120 });
+                            scale = 1.0;
+                            document.documentElement.style.setProperty('--card-scale', scale);
+                            focusContent({ smooth: true });
                         }, 50);
                         
                         if (isAuth) scheduleDriveMetaRefresh();
@@ -316,8 +309,9 @@
                     const data = await filesRes.json();
                     applyServerFiles(data);
                     saveToCache();
-                    // Căn giữa lại dựa trên thực tế cụm file vừa tải
+                    // Căn giữa lại dựa trên thực tế cụm file vừa tải (Tính trước khi render)
                     focusContent({ smooth: false });
+                    render();
                 }
             } catch (e) { console.error('Files fetch failed:', e); }
         }
@@ -444,9 +438,9 @@
             document.documentElement.style.setProperty('--card-scale', scale);
         }
 
-        // 3. Tâm màn hình là trung điểm hình học của hệ điểm neo
+        // 3. Tâm màn hình là trung điểm hình học của hệ điểm neo (có bù trừ -80px cho cân đối)
         const centerX = (minX + maxX) / 2;
-        const centerY = (minY + maxY) / 2;
+        const centerY = ((minY + maxY) / 2) - 80;
 
         panX = Math.round(cw / 2 - centerX);
         panY = Math.round(ch / 2 - centerY);
@@ -699,49 +693,176 @@
         };
     }
 
+    function getClientFileType(filename) {
+        const ext = (filename.split('.').pop() || '').toLowerCase();
+        const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico', 'avif'];
+        const videoExts = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv'];
+        if (imageExts.includes(ext)) return 'image';
+        if (videoExts.includes(ext)) return 'video';
+        return 'other';
+    }
+
+    function formatFileSizeClient(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    async function generateImageThumb(file) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const maxSize = 300;
+                let w = img.width, h = img.height;
+                if (w > maxSize || h > maxSize) {
+                    if (w > h) { h = Math.round(h * (maxSize / w)); w = maxSize; }
+                    else { w = Math.round(w * (maxSize / h)); h = maxSize; }
+                }
+                const c = document.createElement('canvas');
+                c.width = w; c.height = h;
+                c.getContext('2d').drawImage(img, 0, 0, w, h);
+                c.toBlob((blob) => { URL.revokeObjectURL(img.src); resolve(blob); }, 'image/webp', 0.8);
+            };
+            img.onerror = () => { URL.revokeObjectURL(img.src); resolve(null); };
+            img.src = URL.createObjectURL(file);
+        });
+    }
+
     async function generateVideoThumb(file) {
         return new Promise((resolve) => {
+            let resolved = false;
+            const done = (val) => { if (!resolved) { resolved = true; resolve(val); } };
+
             const video = document.createElement('video');
             video.preload = 'metadata';
-            video.src = URL.createObjectURL(file);
             video.muted = true; video.playsInline = true;
+            
             video.onloadedmetadata = () => { video.currentTime = 0.1; };
             video.onseeked = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                canvas.toBlob((blob) => { resolve(blob); URL.revokeObjectURL(video.src); }, 'image/webp', 0.8);
+                try {
+                    const c = document.createElement('canvas');
+                    c.width = video.videoWidth; c.height = video.videoHeight;
+                    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+                    c.toBlob((blob) => { URL.revokeObjectURL(video.src); done(blob); }, 'image/webp', 0.8);
+                } catch (e) { URL.revokeObjectURL(video.src); done(null); }
             };
-            video.onerror = () => { resolve(null); URL.revokeObjectURL(video.src); };
-            setTimeout(() => resolve(null), 5000); // Timeout
+            video.onerror = () => { URL.revokeObjectURL(video.src); done(null); };
+            
+            video.src = URL.createObjectURL(file);
+            setTimeout(() => { URL.revokeObjectURL(video.src); done(null); }, 4000);
         });
     }
 
     async function uploadFiles(list, dx, dy) {
         if (!requireLogin()) return;
-        const spinner = document.createElement('div');
-        spinner.className = 'upload-spinner-overlay';
-        spinner.innerHTML = `<div class="upload-spinner-inner"><svg width="28" height="28" viewBox="0 0 24 24"><g><circle cx="3" cy="12" r="2" fill="#888"/><circle cx="21" cy="12" r="2" fill="#888"/><circle cx="12" cy="21" r="2" fill="#888"/><circle cx="12" cy="3" r="2" fill="#888"/><circle cx="5.64" cy="5.64" r="2" fill="#888"/><circle cx="18.36" cy="18.36" r="2" fill="#888"/><circle cx="5.64" cy="18.36" r="2" fill="#888"/><circle cx="18.36" cy="5.64" r="2" fill="#888"/></g></svg></div>`;
-        document.body.appendChild(spinner);
 
-        const fd = new FormData(), pos = [];
         for (let i = 0; i < list.length; i++) {
             const file = list[i];
-            fd.append('files', file);
-            if (file.type.startsWith('video/')) {
-                const thumb = await generateVideoThumb(file);
-                if (thumb) fd.append(`videoThumb_${i}`, thumb);
+            const pos = findFreePosition(dx, dy, i);
+            const fileType = getClientFileType(file.name);
+            const fileId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+
+            // === FOREGROUND: Thumbnail + Metadata lưu ngay ===
+
+            // 1. Tạo thumbnail local để hiện ngay trên card
+            let localThumbUrl = null;
+            if (fileType === 'image') {
+                localThumbUrl = URL.createObjectURL(file);
             }
-            pos.push(findFreePosition(dx, dy, i));
+
+            // 2. Tạo thumbnail blob (client-side) cho cả ảnh và video
+            let thumbBlob = null;
+            if (fileType === 'image') thumbBlob = await generateImageThumb(file);
+            else if (fileType === 'video') thumbBlob = await generateVideoThumb(file);
+
+            // 3. Upload thumbnail lên Drive qua server (nhỏ ~100KB, nhanh)
+            let driveThumbnailId = null;
+            if (thumbBlob) {
+                const thumbFd = new FormData();
+                thumbFd.append('thumb', thumbBlob, fileId + '.webp');
+                thumbFd.append('fileId', fileId);
+                try {
+                    const thumbRes = await fetch('/api/upload/thumb', { method: 'POST', body: thumbFd });
+                    if (thumbRes.ok) driveThumbnailId = (await thumbRes.json()).driveThumbnailId;
+                } catch (e) { console.warn('Thumb upload skipped:', e.message); }
+            }
+
+            // 4. Tạo metadata đầy đủ (đã có thumbnail thật)
+            const fileMeta = {
+                id: fileId, name: file.name, filename: file.name, type: fileType,
+                size: file.size, sizeFormatted: formatFileSizeClient(file.size),
+                uploadedAt: new Date().toISOString(),
+                hidden: false, position: pos,
+                parentFolder: currentFolderId, groupId: currentGroupId,
+                driveThumbnailId, localThumbUrl,
+                isTemp: true,
+            };
+
+            // 5. Lưu metadata (vị trí, thumbnail, tên...) lên server TRƯỚC
+            try {
+                await fetch('/api/upload/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ files: [fileMeta] })
+                });
+            } catch (e) { console.error('Metadata save failed:', e.message); }
+
+            // 6. SAU KHI đã lưu xong → Hiện card trên canvas
+            files.push(fileMeta);
+            saveToCache();
+            render();
+
+            // === BACKGROUND: Chỉ upload file gốc lên Drive chạy ngầm ===
+            (async () => {
+                try {
+                    // Xin resumable upload URL
+                    const initRes = await fetch('/api/upload/init', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            fileName: file.name,
+                            mimeType: file.type || 'application/octet-stream',
+                            fileSize: file.size,
+                            parentFolder: currentFolderId,
+                        })
+                    });
+                    if (!initRes.ok) throw new Error((await initRes.json().catch(() => ({}))).error || 'Init failed');
+                    const { uploadUrl } = await initRes.json();
+
+                    // Upload file trực tiếp lên Google Drive (không qua Vercel)
+                    const driveRes = await fetch(uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+                        body: file,
+                    });
+                    if (!driveRes.ok) throw new Error(`Drive upload failed: ${driveRes.status}`);
+                    const driveData = await driveRes.json();
+
+                    // Cập nhật driveFileId vào file
+                    const f = files.find(x => x.id === fileId);
+                    if (f) {
+                        f.driveFileId = driveData.id;
+                        f.isTemp = false;
+                        if (f.localThumbUrl) {
+                            URL.revokeObjectURL(f.localThumbUrl);
+                            delete f.localThumbUrl;
+                        }
+                        // Cập nhật driveFileId lên server
+                        fetch(`/api/files/${fileId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ driveFileId: driveData.id })
+                        }).catch(() => {});
+                        saveToCache();
+                        render();
+                    }
+                } catch (e) {
+                    console.error('Background Drive upload failed:', e);
+                }
+            })();
         }
-
-        fd.append('positions', JSON.stringify(pos)); fd.append('groupId', currentGroupId);
-        if (currentFolderId) fd.append('parentFolder', currentFolderId);
-
-        const nf = await (await fetch('/api/upload', { method: 'POST', body: fd })).json();
-        spinner.remove();
-        files.push(...nf); render();
     }
 
     async function deleteFile(id) {
@@ -827,7 +948,9 @@
     function applyServerFiles(data) {
         if (!data) return;
         const incomingFiles = data.files || (Array.isArray(data) ? data : []);
-        const incomingPositions = data.positions || {};
+        
+        // Preserve current local positions to avoid jitter when syncing
+        const posMap = new Map(files.map((x) => [x.id, x.position]));
         
         // 1. Lọc bỏ các file cũ không có trong danh sách mới từ Server
         const incomingIds = new Set(incomingFiles.map(f => f.id));
@@ -836,28 +959,20 @@
         // 2. Cập nhật hoặc thêm mới
         incomingFiles.forEach(sf => {
             const existing = files.find(f => f.id === sf.id);
+            const localPos = posMap.get(sf.id);
             if (!existing) {
-                if (incomingPositions[sf.id]) {
-                    const pos = incomingPositions[sf.id];
-                    sf.position = { x: Number(pos.x), y: Number(pos.y) };
-                } else if (sf.position) {
-                    sf.position = { x: Number(sf.position.x), y: Number(sf.position.y) };
-                } else {
-                    sf.position = { x: 0, y: 0 };
-                }
+                sf.position = localPos || (sf.position ? { x: Number(sf.position.x), y: Number(sf.position.y) } : { x: 0, y: 0 });
                 files.push(sf);
             } else {
                 Object.assign(existing, sf);
-                if (incomingPositions[sf.id]) {
-                    const pos = incomingPositions[sf.id];
-                    existing.position = { x: Number(pos.x), y: Number(pos.y) };
+                // ALWAYS prefer the local position if it exists so we don't snap back to older server positions
+                if (localPos) {
+                    existing.position = localPos;
                 } else if (sf.position) {
                     existing.position = { x: Number(sf.position.x), y: Number(sf.position.y) };
                 }
             }
         });
-        
-        render();
     }
 
     async function createFolder(pos) {
@@ -1220,7 +1335,7 @@
 
         if (file.type === 'image') {
             viewerBody.innerHTML = '<div class="viewer-loading"></div>';
-            const img = document.createElement('img'); img.src = rawUrl(file); img.alt = file.name;
+            const img = document.createElement('img');
             img.onload = () => {
                 const maxW = window.innerWidth * 0.92 - 28, maxH = window.innerHeight * 0.92 - 70;
                 let w = img.naturalWidth, h = img.naturalHeight;
@@ -1229,9 +1344,23 @@
                 viewerPopup.style.width = Math.round(w + 28) + 'px';
                 viewerBody.innerHTML = ''; viewerBody.appendChild(img);
             };
+            img.onerror = () => {
+                const f = files.find(x => x.id === file.id);
+                if (f && (f.isTemp || !f.driveFileId)) {
+                    setTimeout(() => {
+                        if (viewerOverlay.style.display !== 'none' && currentViewerFile && currentViewerFile.id === file.id) {
+                            img.src = rawUrl(f) + '&retry=' + Date.now();
+                        }
+                    }, 2000);
+                } else {
+                    viewerBody.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Lỗi tải ảnh. Có thể tệp đã bị xóa hoặc tải lên thất bại.</div>';
+                }
+            };
+            img.src = rawUrl(file);
+            img.alt = file.name;
         } else if (file.type === 'video') {
             viewerBody.innerHTML = '<div class="viewer-loading"></div>';
-            const v = document.createElement('video'); v.src = rawUrl(file); v.controls = true;
+            const v = document.createElement('video'); v.controls = true;
             v.onloadedmetadata = () => {
                 const maxW = window.innerWidth * 0.92 - 28, maxH = window.innerHeight * 0.92 - 70;
                 let w = v.videoWidth, h = v.videoHeight;
@@ -1240,6 +1369,19 @@
                 viewerPopup.style.width = Math.round(w + 28) + 'px';
                 viewerBody.innerHTML = ''; viewerBody.appendChild(v);
             };
+            v.onerror = () => {
+                const f = files.find(x => x.id === file.id);
+                if (f && (f.isTemp || !f.driveFileId)) {
+                    setTimeout(() => {
+                        if (viewerOverlay.style.display !== 'none' && currentViewerFile && currentViewerFile.id === file.id) {
+                            v.src = rawUrl(f) + '&retry=' + Date.now();
+                        }
+                    }, 2000);
+                } else {
+                    viewerBody.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Lỗi tải video. Có thể tệp đã bị xóa hoặc tải lên thất bại.</div>';
+                }
+            };
+            v.src = rawUrl(file);
         } else if (file.type === 'note') {
             viewerPopup.style.width = '700px'; viewerPopup.style.height = '90vh';
             viewerBody.style.alignItems = 'stretch'; viewerBody.style.display = 'block';
@@ -1317,8 +1459,16 @@
     function toggleHiddenMode(on) { hiddenMode = on; hiddenBanner.style.display = on ? 'flex' : 'none'; render(); }
     function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+    let lastMouseX = window.innerWidth / 2;
+    let lastMouseY = window.innerHeight / 2;
+
     function bindEvents() {
         const displacedFiles = new Map(); // id -> originalPosition
+        
+        document.addEventListener('mousemove', e => {
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
         window.addEventListener('blur', () => {
             isSpaceDown = false;
             viewport.style.cursor = 'default';
@@ -1458,7 +1608,10 @@
                 const nx = parseFloat(currentDrag.card.style.left);
                 const ny = parseFloat(currentDrag.card.style.top);
                 
-                const f = files.find(f => f.id === currentDrag.id);
+                // Sử dụng ID hiện tại trên dataset thay vì ID gốc lúc mousedown (đề phòng ID thay đổi do server trả về lúc vừa tạo file)
+                const currentFileId = currentDrag.card.dataset.id || currentDrag.id;
+                
+                const f = files.find(f => f.id === currentFileId);
                 if (f) {
                     f.position = { x: nx, y: ny };
                     // Lưu vào cache ngay lập tức để F5 không bị mất
@@ -1552,7 +1705,10 @@
                 focusContent({ smooth: true }); return;
             }
             if ((e.code === 'Digit0' || e.code === 'Numpad0') && e.target.tagName !== 'INPUT') {
-                e.preventDefault(); focusContent({ smooth: true, fit: true });
+                e.preventDefault();
+                scale = 1.0;
+                document.documentElement.style.setProperty('--card-scale', scale);
+                focusContent({ smooth: true });
             }
             if (e.key === 'Escape') { if (viewerOverlay.style.display !== 'none') closeViewer(); hideAllMenus(); }
             if (viewerOverlay.style.display !== 'none' && e.target.tagName !== 'INPUT') {
@@ -1568,7 +1724,16 @@
             }
         }, { passive: false });
 
-        fileInput.addEventListener('change', async e => { if (e.target.files.length > 0) { await uploadFiles(e.target.files, 100, 100); fileInput.value = ''; } });
+        fileInput.addEventListener('change', async e => { if (e.target.files.length > 0) { await uploadFiles(e.target.files, window.innerWidth / 2 - panX, window.innerHeight / 2 - panY); fileInput.value = ''; } });
+
+        document.addEventListener('paste', async e => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+            if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+                const cx = lastMouseX - panX;
+                const cy = lastMouseY - panY;
+                await uploadFiles(e.clipboardData.files, cx, cy);
+            }
+        });
 
         // Drag & drop
         document.addEventListener('dragenter', e => e.preventDefault());
