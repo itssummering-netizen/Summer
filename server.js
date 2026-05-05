@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -12,6 +13,7 @@ const mongoose = require('mongoose');
 const { Mutex } = require('async-mutex');
 
 const app = express();
+app.use(cors());
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const LOCAL_UI_ONLY = process.env.LOCAL_UI_ONLY === '1' || process.argv.includes('--ui-only');
@@ -889,7 +891,7 @@ app.post('/api/upload/init', requireAuth, async (req, res) => {
 
     // Create resumable upload session via Google API
     const response = await adminOAuthClient.request({
-      url: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+      url: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json; charset=UTF-8',
